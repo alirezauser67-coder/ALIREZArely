@@ -158,8 +158,8 @@ def main():
     threading.Thread(target=udp_echo, daemon=True).start()
 
     tmp = tempfile.mkdtemp()
-    env = dict(os.environ, UUID=UUID_STR, PORT=str(GATE), TCP_PORT=str(TCPP),
-               TCP_PUBLIC_PORT=str(TCPP), DATA_DIR=tmp, TAG="TESTTAG")
+    env = dict(os.environ, UUID=UUID_STR, PORT=str(GATE),
+               DATA_DIR=tmp, TAG="TESTTAG")
     logf = open(os.path.join(tmp, "gw.log"), "w")
     gw = subprocess.Popen([sys.executable, "main.py"], cwd=ROOT, env=env,
                           stdout=logf, stderr=subprocess.STDOUT)
@@ -167,7 +167,6 @@ def main():
         for _ in range(50):
             try:
                 socket.create_connection(("127.0.0.1", GATE), timeout=1).close()
-                socket.create_connection(("127.0.0.1", TCPP), timeout=1).close()
                 break
             except OSError:
                 time.sleep(0.2)
@@ -183,11 +182,15 @@ def main():
         st, body = get("/sub")
         lines = [l for l in body.strip().split("\n") if l]
         check("sub status 200", st == 200)
-        check("sub has two links", len(lines) == 2, body)
-        check("link1 is ws", lines and lines[0].startswith("vless://") and "type=ws" in lines[0], body)
-        check("link1 uuid", UUID_STR in (lines[0] if lines else ""), body)
-        check("link2 is tcp 9443", len(lines) > 1 and (":" + str(TCPP) + "?") in lines[1] and "type=tcp" in lines[1], body)
-        check("tag in links", "TESTTAG" in body, body)
+        check("sub has one link", len(lines) == 1, body)
+        check("link is ws", lines and lines[0].startswith("vless://") and "type=ws" in lines[0], body)
+        check("link uuid", UUID_STR in (lines[0] if lines else ""), body)
+        check("local link no tls", lines and "security=none" in lines[0], body)
+        r = urllib.request.Request("http://127.0.0.1:%d/sub" % GATE, headers={"Host": "example.com"})
+        body443 = urllib.request.urlopen(r, timeout=5).read().decode()
+        check("link 443 tls via host", "example.com:443?" in body443 and "security=tls" in body443
+              and "sni=example.com" in body443, body443)
+        check("tag in link", "TESTTAG" in body, body)
         st2, body2 = get("/")
         check("/ equals /sub", body2 == body)
         st3, body3 = get("/healthz")
@@ -198,24 +201,16 @@ def main():
         except urllib.error.HTTPError as e:
             check("404", e.code == 404)
 
-        # --- raw vless tcp via dedicated port, domain addr ---
-        s = socket.create_connection(("127.0.0.1", TCPP), timeout=5)
-        s.sendall(vless_hdr(1, "127.0.0.1", HTTP_T) +
-                  b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
-        data = recv_all(s, until=HELLO)
-        s.close()
-        check("tcp vless (domain addr)", data.startswith(b"\x00\x00") and HELLO in data, data[:80])
-
-        # --- raw vless tcp via main port (sniff), ipv4 addr ---
+        # --- raw vless tcp via sniff port, ipv4 addr ---
         s = socket.create_connection(("127.0.0.1", GATE), timeout=5)
         s.sendall(vless_hdr(1, "127.0.0.1", HTTP_T) +
                   b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
         data = recv_all(s, until=HELLO)
         s.close()
-        check("tcp vless via sniff port (ipv4 addr)", data.startswith(b"\x00\x00") and HELLO in data, data[:80])
+        check("tcp vless (ipv4 addr)", data.startswith(b"\x00\x00") and HELLO in data, data[:80])
 
         # --- bad uuid rejected ---
-        s = socket.create_connection(("127.0.0.1", TCPP), timeout=5)
+        s = socket.create_connection(("127.0.0.1", GATE), timeout=5)
         s.sendall(vless_hdr(1, "127.0.0.1", HTTP_T, uuid=b"\x00" * 16) +
                   b"GET / HTTP/1.1\r\nHost: x\r\n\r\n")
         data = recv_all(s, timeout=3)
@@ -231,7 +226,7 @@ def main():
         check("ws vless", data.startswith(b"\x00\x00") and HELLO in data, data[:80])
 
         # --- udp over raw tcp transport ---
-        s = socket.create_connection(("127.0.0.1", TCPP), timeout=5)
+        s = socket.create_connection(("127.0.0.1", GATE), timeout=5)
         s.sendall(vless_hdr(2, "127.0.0.1", UDP_T) + (8).to_bytes(2, "big") + b"ping-udp")
         data = recv_all(s, until=b"ping-udp")
         s.close()
@@ -272,7 +267,7 @@ def main():
         cookie = "gwa=" + setc.split("gwa=")[1].split(";")[0]
 
         st, hdrs, body = req("/admin", cookie=cookie)
-        check("admin page", st == 200 and "tcp host" in body.lower(), (st, body[:120]))
+        check("admin page", st == 200 and "public host" in body.lower(), (st, body[:120]))
 
         st, hdrs, body = req("/admin/save", data=b"host=127.0.0.1&port=19999",
                              cookie=cookie, method="POST")
@@ -289,11 +284,11 @@ def main():
         st, hdrs, body = req("/admin/reset", data=b"", cookie=cookie, method="POST")
         check("admin reset", st == 302, (st, body[:80]))
         st, body = get("/sub")
-        check("reset back to auto", ":19443?" in body, body)
+        check("reset back to auto", (":%d?" % GATE) in body, body)
 
-        st, hdrs, body = req("/admin/test", data=b"host=127.0.0.1&port=%d" % TCPP,
+        st, hdrs, body = req("/admin/test", data=b"host=127.0.0.1&port=%d" % GATE,
                              cookie=cookie, method="POST")
-        check("admin test button", st == 200 and "connect OK" in body, body[:200])
+        check("admin test button", st == 200 and "websocket OK" in body, body[:200])
 
     finally:
         gw.terminate()

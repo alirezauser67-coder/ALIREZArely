@@ -13,11 +13,6 @@ def log(msg):
     print("[%s] %s" % (time.strftime("%Y-%m-%d %H:%M:%S"), msg), flush=True)
 
 
-def _env_int(name):
-    raw = os.getenv(name, "").strip()
-    return int(raw) if raw.isdigit() else None
-
-
 def build_ctx():
     state = admin.load_state()
     env_uuid = os.getenv("UUID", "").strip()
@@ -37,10 +32,6 @@ def build_ctx():
         "uuid_bytes": uid.bytes,
         "tag": os.getenv("TAG", "ALIREZArely").strip() or "ALIREZArely",
         "domain": os.getenv("DOMAIN", "").strip(),
-        "tcp_domain": os.getenv("TCP_DOMAIN", "").strip(),
-        "tcp_public_port": _env_int("TCP_PUBLIC_PORT"),
-        "railway_tcp_domain": os.getenv("RAILWAY_TCP_PROXY_DOMAIN", "").strip(),
-        "railway_tcp_port": _env_int("RAILWAY_TCP_PROXY_PORT"),
         "ws_path": os.getenv("WS_PATH", "/ws").strip() or "/ws",
         "admin_password": os.getenv("ADMIN_PASSWORD", "admin").strip() or "admin",
         "state": state,
@@ -76,10 +67,7 @@ async def handle(reader, writer, ctx):
 
 
 async def run(ctx):
-    candidates = [
-        int(os.getenv("PORT", "8080")),
-        int(os.getenv("TCP_PORT", "9443")),
-    ]
+    candidates = [int(os.getenv("PORT", "8080"))]
     if any(k.startswith("RAILWAY_") for k in os.environ):
         for extra in (8080, 443):
             if extra not in candidates:
@@ -97,14 +85,9 @@ async def run(ctx):
         raise SystemExit(1)
     log("uuid  : %s" % ctx["uuid"])
     log("listen: %s" % ", ".join(str(s.sockets[0].getsockname()[1]) for s in servers))
-    tcp_host, tcp_port, tcp_src = links.tcp_target(ctx, ctx["domain"] or "-")
-    log("tcp   : %s:%s (%s)" % (tcp_host, tcp_port, tcp_src))
-    if ctx["domain"]:
-        l1, l2 = links.build_links(ctx, ctx["domain"])
-        log("link1 : %s" % l1)
-        log("link2 : %s" % l2)
-    else:
-        log("sub   : GET /sub (plain text, no auth)")
+    host, port, src = links.endpoint(ctx, ctx["domain"] or "-")
+    log("public: %s:%s (%s)" % (host, port, src))
+    log("link  : %s" % links.build_link(ctx, ctx["domain"]))
     await asyncio.gather(*[s.serve_forever() for s in servers])
 
 

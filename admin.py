@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import hashlib
 import json
 import os
@@ -99,7 +100,7 @@ def _logout_redirect():
 
 _CSS = """
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui,-apple-system,sans-serif;background:#0f1419;color:#e7ecf3;max-width:760px;margin:0 auto;padding:24px 16px}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0f1419;color:#e7ecf3;max-width:720px;margin:0 auto;padding:24px 16px}
 .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
 .top h1{font-size:22px;font-weight:700}
 .top h1 span{color:#3ea6ff}
@@ -108,7 +109,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f1419;color:#e7
 .row{display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap}
 .row .k{color:#8a9bb3;min-width:100px;font-size:13px}
 .mono{font-family:Consolas,Menlo,monospace;font-size:12px;background:#0d1117;border:1px solid #2a3a52;border-radius:8px;padding:10px;width:100%;color:#9ece6a;word-break:break-all}
-input[type=password]{background:#0d1117;border:1px solid #2a3a52;border-radius:8px;color:#e7ecf3;padding:10px;font-size:14px;width:100%}
+input{background:#0d1117;border:1px solid #2a3a52;border-radius:8px;color:#e7ecf3;padding:10px;font-size:14px;width:100%;font-family:Consolas,Menlo,monospace}
 button{background:#3ea6ff;color:#081018;border:0;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:600;cursor:pointer}
 button.sec{background:#2a3a52;color:#cfe3ff}
 button.danger{background:#e5534b;color:#fff}
@@ -143,11 +144,10 @@ def _login_page(err=""):
 
 def _page(ctx, host_hdr, note="", saved=False):
     st = ctx["state"]
-    l1, l2 = links.build_links(ctx, host_hdr)
-    tcp_host, tcp_port, tcp_src = links.tcp_target(ctx, "-")
-    auto_host = ctx.get("railway_tcp_domain") or ctx.get("tcp_domain") or ""
-    auto_port = ctx.get("railway_tcp_port") or ctx.get("tcp_public_port") or ""
-    override = bool(st.get("tcp_domain") or st.get("tcp_public_port"))
+    link = links.build_link(ctx, host_hdr)
+    pub_host, pub_port, pub_src = links.endpoint(ctx, host_hdr)
+    auto_host, auto_port, _ = links.endpoint(ctx, "")
+    override = bool(st.get("host") or st.get("port"))
     banners = ""
     if note:
         banners += '<div class="banner errb">%s</div>' % _esc(note)
@@ -167,38 +167,35 @@ def _page(ctx, host_hdr, note="", saved=False):
 
 <div class="card"><h2>Server</h2>
 <div class="row"><span class="k">UUID</span>
-<input readonly class="mono" id="uuid" value="%s" onclick="this.select()"></div>
+<input readonly id="uuid" value="%s" onclick="this.select()"></div>
 <div class="btns"><button class="sec" onclick="copy('uuid')">Copy UUID</button></div>
-<div class="row" style="margin-top:14px"><span class="k">TCP endpoint</span>
+<div class="row" style="margin-top:14px"><span class="k">Public</span>
 <span class="val">%s:%s</span> <span class="badge">%s</span></div>
 </div>
 
-<div class="card"><h2>Client links</h2>
-<div class="row"><span class="k">WS + TLS</span><span class="hint" style="margin:0">port 443 via domain (import this in clients)</span></div>
+<div class="card"><h2>Client link</h2>
 <div class="row"><input readonly class="mono" id="l1" value="%s" onclick="this.select()"></div>
-<div class="btns"><button class="sec" onclick="copy('l1')">Copy link 1</button></div>
-<div class="row" style="margin-top:14px"><span class="k">Raw TCP</span><span class="hint" style="margin:0">no TLS, direct proxy port</span></div>
-<div class="row"><input readonly class="mono" id="l2" value="%s" onclick="this.select()"></div>
-<div class="btns"><button class="sec" onclick="copy('l2')">Copy link 2</button></div>
+<div class="btns"><button class="sec" onclick="copy('l1')">Copy link</button>
+<span class="hint" style="margin:0">same as /sub</span></div>
 </div>
 
-<div class="card"><h2>TCP Proxy settings</h2>
+<div class="card"><h2>Settings</h2>
 %s
-<div class="hint">Paste the Railway TCP proxy domain only (port optional). If you paste
-<code>domain:port</code> or a full <code>vless://</code> link, host and port are extracted automatically.</div>
+<div class="hint">Host = your domain (or leave empty for auto). Port = 443.
+Paste <code>domain:port</code> or a full <code>vless://</code> link into Host if you want - it is parsed automatically.</div>
 <form method="post" action="/admin/save" style="margin-top:12px">
-<div class="row"><span class="k">TCP host</span>
-<input type="text" class="mono" name="host" id="host" placeholder="auto: %s" value="%s"></div>
-<div class="row"><span class="k">TCP port</span>
-<input type="text" class="mono" name="port" id="port" placeholder="auto: %s" value="%s"></div>
+<div class="row"><span class="k">Public host</span>
+<input name="host" id="host" placeholder="auto: %s" value="%s"></div>
+<div class="row"><span class="k">Public port</span>
+<input name="port" id="port" placeholder="auto: %s" value="%s"></div>
 <div class="btns"><button>Save</button></div>
 </form>
 </div>
 
 <div class="card"><h2>Test</h2>
-<div class="hint">Connects through your TCP proxy with VLESS, fetches ipinfo.io and shows the egress IP.
-Use the values in the boxes above (or save first).</div>
-<div class="btns"><button onclick="doTest()">Run tunnel test</button></div>
+<div class="hint">Connects to your public endpoint over WebSocket, runs a VLESS tunnel to ipinfo.io
+and shows the egress IP. Tests the exact same path clients use.</div>
+<div class="btns"><button onclick="doTest()">Run test</button></div>
 <pre class="out" id="out"></pre>
 </div>
 
@@ -215,16 +212,15 @@ catch(e){o.textContent="error: "+e;}}
             _CSS,
             banners,
             _esc(ctx["uuid"]),
-            _esc(tcp_host),
-            tcp_port,
-            _esc(tcp_src),
-            _esc(l1),
-            _esc(l2),
+            _esc(pub_host),
+            pub_port,
+            _esc(pub_src),
+            _esc(link),
             override_html,
-            _esc(auto_host or "from Railway"),
-            _esc(st.get("tcp_domain", "")),
-            _esc(auto_port or "from Railway"),
-            st.get("tcp_public_port", ""),
+            _esc(auto_host),
+            _esc(st.get("host", "")),
+            _esc(auto_port),
+            st.get("port", ""),
         ),
     )
 
@@ -268,32 +264,37 @@ def _norm_host_port(host, port_s):
     return h, port_v, ""
 
 
-async def _tunnel_test(ctx, host, port):
+def _ws_frame(payload):
+    mask = os.urandom(4)
+    ln = len(payload)
+    h = bytes([0x82])
+    if ln < 126:
+        h += bytes([0x80 | ln])
+    elif ln < 65536:
+        h += bytes([0x80 | 126]) + ln.to_bytes(2, "big")
+    else:
+        h += bytes([0x80 | 127]) + ln.to_bytes(8, "big")
+    return h + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+
+
+async def _ws_tunnel_test(ctx, host, port):
     try:
         reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), 6)
     except Exception as exc:
         return "connect FAIL %s:%s -> %s" % (host, port, exc)
     lines = ["connect OK %s:%s" % (host, port)]
     try:
-        addr = b"ipinfo.io"
-        hdr = (
-            b"\x00"
-            + ctx["uuid_bytes"]
-            + b"\x00\x01"
-            + (80).to_bytes(2, "big")
-            + b"\x02"
-            + bytes([len(addr)])
-            + addr
-        )
-        req = hdr + (
-            b"GET /ip HTTP/1.1\r\nHost: ipinfo.io\r\n"
-            b"Connection: close\r\nUser-Agent: curl\r\n\r\n"
-        )
+        key = base64.b64encode(os.urandom(16)).decode()
+        req = (
+            "GET %s HTTP/1.1\r\nHost: %s:%d\r\nUpgrade: websocket\r\n"
+            "Connection: Upgrade\r\nSec-WebSocket-Key: %s\r\n"
+            "Sec-WebSocket-Version: 13\r\n\r\n" % (ctx["ws_path"], host, port, key)
+        ).encode()
         writer.write(req)
         await writer.drain()
         buf = b""
-        deadline = time.time() + 12
-        while time.time() < deadline and len(buf) < 16384:
+        deadline = time.time() + 8
+        while b"\r\n\r\n" not in buf and time.time() < deadline:
             try:
                 chunk = await asyncio.wait_for(
                     reader.read(4096), max(0.5, deadline - time.time())
@@ -303,18 +304,81 @@ async def _tunnel_test(ctx, host, port):
             if not chunk:
                 break
             buf += chunk
-        if not buf:
-            lines.append("tunnel FAIL: no response (uuid mismatch?)")
+        head, _, rest = buf.partition(b"\r\n\r\n")
+        if b" 101" not in head.split(b"\r\n")[0]:
+            lines.append("websocket FAIL: %r" % head[:120])
             return "\n".join(lines)
-        if buf[:2] == b"\x00\x00":
+        lines.append("websocket OK")
+
+        addr = b"ipinfo.io"
+        vhdr = (
+            b"\x00"
+            + ctx["uuid_bytes"]
+            + b"\x00\x01"
+            + (80).to_bytes(2, "big")
+            + b"\x02"
+            + bytes([len(addr)])
+            + addr
+        )
+        payload = vhdr + (
+            b"GET /ip HTTP/1.1\r\nHost: ipinfo.io\r\n"
+            b"Connection: close\r\nUser-Agent: curl\r\n\r\n"
+        )
+        writer.write(_ws_frame(payload))
+        await writer.drain()
+
+        data = bytearray(rest)
+        out = bytearray()
+        deadline = time.time() + 12
+        while time.time() < deadline and len(out) < 16384:
+            progressed = True
+            while progressed and len(data) >= 2:
+                progressed = False
+                ln = data[1] & 0x7F
+                pos = 2
+                if ln == 126:
+                    if len(data) < 4:
+                        break
+                    ln = int.from_bytes(data[2:4], "big")
+                    pos = 4
+                elif ln == 127:
+                    if len(data) < 10:
+                        break
+                    ln = int.from_bytes(data[2:10], "big")
+                    pos = 10
+                if data[1] & 0x80:
+                    if len(data) < pos + 4:
+                        break
+                    pos += 4
+                if len(data) < pos + ln:
+                    break
+                out += data[pos:pos + ln]
+                del data[:pos + ln]
+                progressed = True
+            if b"\r\n\r\n" in out and len(out) > out.index(b"\r\n\r\n") + 4 + 0 and not progressed:
+                if len(out) > out.index(b"\r\n\r\n") + 4:
+                    break
+            try:
+                chunk = await asyncio.wait_for(
+                    reader.read(4096), max(0.5, deadline - time.time())
+                )
+            except asyncio.TimeoutError:
+                break
+            if not chunk:
+                break
+            data += chunk
+        if not out:
+            lines.append("tunnel FAIL: no data")
+            return "\n".join(lines)
+        if out[:2] == b"\x00\x00":
             lines.append("vless header OK")
-            buf = buf[2:]
+            out = out[2:]
         else:
-            lines.append("tunnel FAIL: bad vless response %r" % buf[:4])
+            lines.append("tunnel FAIL: bad vless response %r" % bytes(out[:4]))
             return "\n".join(lines)
-        if b"\r\n\r\n" in buf:
-            status_line = buf.split(b"\r\n", 1)[0].decode("latin-1", "replace")
-            body = buf.split(b"\r\n\r\n", 1)[1].strip()
+        if b"\r\n\r\n" in out:
+            status_line = out.split(b"\r\n", 1)[0].decode("latin-1", "replace")
+            body = bytes(out.split(b"\r\n\r\n", 1)[1]).strip()
             lines.append("http %s" % status_line)
             text = body.decode("utf-8", "replace").strip()
             if text and all(c in "0123456789.:" for c in text) and len(text) >= 7:
@@ -322,7 +386,7 @@ async def _tunnel_test(ctx, host, port):
             elif text:
                 lines.append("body: %s" % text[:200])
         else:
-            lines.append("raw: %r" % buf[:200])
+            lines.append("raw: %r" % bytes(out[:200]))
     except Exception as exc:
         lines.append("tunnel FAIL: %s" % exc)
     finally:
@@ -358,8 +422,8 @@ async def handle(method, target, headers, body, ctx):
         return _logout_redirect()
 
     if path == "/admin/reset" and method == "POST":
-        ctx["state"].pop("tcp_domain", None)
-        ctx["state"].pop("tcp_public_port", None)
+        ctx["state"].pop("host", None)
+        ctx["state"].pop("port", None)
         save_state(ctx["state"])
         return _redirect("/admin?saved=1")
 
@@ -371,13 +435,13 @@ async def handle(method, target, headers, body, ctx):
         if err:
             return _page(ctx, headers.get("host", ""), note=err)
         if host:
-            ctx["state"]["tcp_domain"] = host
+            ctx["state"]["host"] = host
         else:
-            ctx["state"].pop("tcp_domain", None)
+            ctx["state"].pop("host", None)
         if port_v is not None:
-            ctx["state"]["tcp_public_port"] = port_v
+            ctx["state"]["port"] = port_v
         else:
-            ctx["state"].pop("tcp_public_port", None)
+            ctx["state"].pop("port", None)
         save_err = save_state(ctx["state"])
         if save_err:
             return _page(
@@ -391,15 +455,17 @@ async def handle(method, target, headers, body, ctx):
         form = urllib.parse.parse_qs(body.decode("utf-8", "replace"))
         host_raw = form.get("host", [""])[0]
         port_raw = form.get("port", [""])[0].strip()
+        pub_host, pub_port, _ = links.endpoint(ctx, headers.get("host", ""))
         if not host_raw.strip() and not port_raw:
-            t_host, t_port, _ = links.tcp_target(ctx, "127.0.0.1")
-            host_raw, port_raw = t_host, str(t_port)
+            host_raw, port_raw = pub_host, str(pub_port)
         host, port_v, err = _norm_host_port(host_raw, port_raw)
         if err or not host or not port_v:
             return _resp(
-                "200 OK", "bad host/port (%s)" % (err or "missing"), ctype="text/plain; charset=utf-8"
+                "200 OK",
+                "bad host/port (%s)" % (err or "missing"),
+                ctype="text/plain; charset=utf-8",
             )
-        text = await _tunnel_test(ctx, host, port_v)
+        text = await _ws_tunnel_test(ctx, host, port_v)
         return _resp("200 OK", text, ctype="text/plain; charset=utf-8")
 
     return _resp("404 Not Found", "404")

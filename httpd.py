@@ -70,8 +70,8 @@ async def serve(reader, writer, prefix, ctx, peer="?"):
         elif method != "GET":
             writer.write(_resp("405 Method Not Allowed", "405"))
         elif path in ("/", "/sub"):
-            l1, l2 = links.build_links(ctx, headers.get("host", ""))
-            writer.write(_resp("200 OK", l1 + "\n" + l2 + "\n"))
+            link = links.build_link(ctx, headers.get("host", ""))
+            writer.write(_resp("200 OK", link + "\n"))
         elif path == "/healthz":
             writer.write(_resp("200 OK", "ok"))
         else:
