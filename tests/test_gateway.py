@@ -280,6 +280,17 @@ def main():
         st, body = get("/sub")
         check("admin save affects sub", ":19999?" in body, body)
 
+        st, hdrs, body = req("/admin/save", data=b"host=127.0.0.1:18081&port=9999",
+                             cookie=cookie, method="POST")
+        check("admin save host:port", st == 302, (st, body[:80]))
+        st, body = get("/sub")
+        check("colon host splits port", ":18081?" in body and ":9999?" not in body, body)
+
+        st, hdrs, body = req("/admin/reset", data=b"", cookie=cookie, method="POST")
+        check("admin reset", st == 302, (st, body[:80]))
+        st, body = get("/sub")
+        check("reset back to auto", ":19443?" in body, body)
+
         st, hdrs, body = req("/admin/test", data=b"host=127.0.0.1&port=%d" % TCPP,
                              cookie=cookie, method="POST")
         check("admin test button", st == 200 and "connect OK" in body, body[:200])

@@ -66,7 +66,7 @@ async def serve(reader, writer, prefix, ctx, peer="?"):
 
         path = target.split("?", 1)[0]
         if path.startswith("/admin"):
-            writer.write(await admin.handle(method, path, headers, body, ctx))
+            writer.write(await admin.handle(method, target, headers, body, ctx))
         elif method != "GET":
             writer.write(_resp("405 Method Not Allowed", "405"))
         elif path in ("/", "/sub"):
