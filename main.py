@@ -1,43 +1,16 @@
 import asyncio
-import json
 import os
 import time
 import uuid as uuidlib
 
+import admin
 import httpd
+import links
 import vless
 
 
 def log(msg):
     print("[%s] %s" % (time.strftime("%Y-%m-%d %H:%M:%S"), msg), flush=True)
-
-
-def _state_path():
-    data_dir = (
-        os.getenv("DATA_DIR", "").strip()
-        or ("/data" if os.name != "nt" and os.path.isdir("/data") else "data")
-    )
-    return os.path.join(data_dir, "state.json")
-
-
-def load_uuid():
-    env_uuid = os.getenv("UUID", "").strip()
-    saved = None
-    try:
-        with open(_state_path(), "r", encoding="utf-8") as fh:
-            saved = (json.load(fh) or {}).get("uuid")
-    except Exception:
-        pass
-    chosen = env_uuid or saved or str(uuidlib.uuid4())
-    if not env_uuid:
-        try:
-            path = _state_path()
-            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-            with open(path, "w", encoding="utf-8") as fh:
-                json.dump({"uuid": chosen}, fh)
-        except Exception as exc:
-            log("warn: state not persisted (%s)" % exc)
-    return chosen
 
 
 def _env_int(name):
@@ -46,11 +19,19 @@ def _env_int(name):
 
 
 def build_ctx():
+    state = admin.load_state()
+    env_uuid = os.getenv("UUID", "").strip()
+    chosen = env_uuid or state.get("uuid") or str(uuidlib.uuid4())
     try:
-        uid = uuidlib.UUID(load_uuid().strip())
+        uid = uuidlib.UUID(chosen.strip())
     except ValueError:
         log("error: invalid UUID")
         raise SystemExit(1)
+    if state.get("uuid") != str(uid):
+        state["uuid"] = str(uid)
+        err = admin.save_state(state)
+        if err:
+            log("warn: state not persisted (%s)" % err)
     return {
         "uuid": str(uid),
         "uuid_bytes": uid.bytes,
@@ -61,6 +42,8 @@ def build_ctx():
         "railway_tcp_domain": os.getenv("RAILWAY_TCP_PROXY_DOMAIN", "").strip(),
         "railway_tcp_port": _env_int("RAILWAY_TCP_PROXY_PORT"),
         "ws_path": os.getenv("WS_PATH", "/ws").strip() or "/ws",
+        "admin_password": os.getenv("ADMIN_PASSWORD", "admin").strip() or "admin",
+        "state": state,
         "log": log,
     }
 
@@ -97,7 +80,7 @@ async def run(ctx):
         int(os.getenv("PORT", "8080")),
         int(os.getenv("TCP_PORT", "9443")),
     ]
-    if os.getenv("RAILWAY_ENVIRONMENT"):
+    if any(k.startswith("RAILWAY_") for k in os.environ):
         for extra in (8080, 443):
             if extra not in candidates:
                 candidates.append(extra)
@@ -114,10 +97,10 @@ async def run(ctx):
         raise SystemExit(1)
     log("uuid  : %s" % ctx["uuid"])
     log("listen: %s" % ", ".join(str(s.sockets[0].getsockname()[1]) for s in servers))
-    tcp_host, tcp_port, tcp_src = httpd.tcp_target(ctx, ctx["domain"] or "-")
+    tcp_host, tcp_port, tcp_src = links.tcp_target(ctx, ctx["domain"] or "-")
     log("tcp   : %s:%s (%s)" % (tcp_host, tcp_port, tcp_src))
     if ctx["domain"]:
-        l1, l2 = httpd.build_links(ctx, ctx["domain"])
+        l1, l2 = links.build_links(ctx, ctx["domain"])
         log("link1 : %s" % l1)
         log("link2 : %s" % l2)
     else:

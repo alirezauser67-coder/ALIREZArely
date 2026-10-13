@@ -240,6 +240,50 @@ def main():
         # --- gateway still alive ---
         st, _ = get("/healthz")
         check("alive after tests", st == 200)
+
+        # --- admin panel ---
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+
+        opener = urllib.request.build_opener(NoRedirect)
+
+        def req(path, data=None, cookie=None, method=None):
+            r = urllib.request.Request("http://127.0.0.1:%d%s" % (GATE, path),
+                                       data=data, method=method)
+            if cookie:
+                r.add_header("Cookie", cookie)
+            try:
+                resp = opener.open(r, timeout=5)
+                return resp.status, dict(resp.headers), resp.read().decode()
+            except urllib.error.HTTPError as e:
+                return e.code, dict(e.headers), e.read().decode()
+
+        st, hdrs, body = req("/admin")
+        check("admin requires login", st == 200 and "password" in body.lower(), (st, body[:120]))
+
+        st, hdrs, body = req("/admin/login", data=b"password=wrong", method="POST")
+        check("admin wrong password", st == 401, (st, body[:120]))
+
+        st, hdrs, body = req("/admin/login", data=b"password=admin", method="POST")
+        loc = hdrs.get("Location", "")
+        setc = hdrs.get("Set-Cookie", "")
+        check("admin login ok", st == 302 and loc == "/admin" and "gwa=" in setc, (st, loc, setc[:80]))
+        cookie = "gwa=" + setc.split("gwa=")[1].split(";")[0]
+
+        st, hdrs, body = req("/admin", cookie=cookie)
+        check("admin page", st == 200 and "tcp host" in body.lower(), (st, body[:120]))
+
+        st, hdrs, body = req("/admin/save", data=b"host=127.0.0.1&port=19999",
+                             cookie=cookie, method="POST")
+        check("admin save redirects", st == 302, (st, body[:80]))
+        st, body = get("/sub")
+        check("admin save affects sub", ":19999?" in body, body)
+
+        st, hdrs, body = req("/admin/test", data=b"host=127.0.0.1&port=%d" % TCPP,
+                             cookie=cookie, method="POST")
+        check("admin test button", st == 200 and "connect OK" in body, body[:200])
+
     finally:
         gw.terminate()
         try:

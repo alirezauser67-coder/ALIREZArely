@@ -1,0 +1,13 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+watchPatterns = [
+  "main.py",
+  "vless.py",
+  "ws.py",
+  "httpd.py",
+  "links.py",
+  "admin.py",
+  "Dockerfile",
+  "railway.toml",
+]
