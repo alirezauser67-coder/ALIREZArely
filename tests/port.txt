@@ -1,0 +1,15 @@
+this ports are for test
+
+altaria.proxy.rlwy.net:26079 for 443 
+
+altaria.proxy.rlwy.net:42571 for 9443
+
+https://alirezarely-production.up.railway.app/ the site 
+
+vless://9a60ca50-93b7-4fb3-afee-b15a5189f7b0@alirezarely-production.up.railway.app:443?encryption=none&security=tls&sni=alirezarely-production.up.railway.app&type=ws&path=/ws&host=alirezarely-production.up.railway.app#ALIREZArely  is working but not in tcp
+
+
+
+
+
+isn't woking  vless://9a60ca50-93b7-4fb3-afee-b15a5189f7b0@alirezarely-production.up.railway.app:9443?encryption=none&type=tcp#ALIREZArely

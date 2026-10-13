@@ -3,3 +3,6 @@ __pycache__/
 data/
 .env
 *.log
+tests/xray core/*
+!tests/xray core/config.json
+!tests/xray core/config.remote.json

@@ -1,0 +1,22 @@
+{
+  "log": { "loglevel": "warning" },
+  "inbounds": [
+    { "tag": "socks-ws", "port": 18088, "listen": "127.0.0.1", "protocol": "socks", "settings": { "udp": false } },
+    { "tag": "socks-tcp", "port": 18089, "listen": "127.0.0.1", "protocol": "socks", "settings": { "udp": false } }
+  ],
+  "outbounds": [
+    {
+      "tag": "ws",
+      "protocol": "vless",
+      "settings": { "vnext": [ { "address": "127.0.0.1", "port": 18080, "users": [ { "id": "11111111-2222-3333-4444-555555555555", "encryption": "none" } ] } ] },
+      "streamSettings": { "network": "ws", "security": "none", "wsSettings": { "path": "/ws" } }
+    },
+    {
+      "tag": "tcp",
+      "protocol": "vless",
+      "settings": { "vnext": [ { "address": "127.0.0.1", "port": 19443, "users": [ { "id": "11111111-2222-3333-4444-555555555555", "encryption": "none" } ] } ] },
+      "streamSettings": { "network": "tcp", "security": "none" }
+    }
+  ],
+  "routing": { "rules": [ { "inboundTag": [ "socks-ws" ], "outboundTag": "ws" }, { "inboundTag": [ "socks-tcp" ], "outboundTag": "tcp" } ] }
+}

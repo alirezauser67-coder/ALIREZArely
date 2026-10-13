@@ -40,6 +40,11 @@ def load_uuid():
     return chosen
 
 
+def _env_int(name):
+    raw = os.getenv(name, "").strip()
+    return int(raw) if raw.isdigit() else None
+
+
 def build_ctx():
     try:
         uid = uuidlib.UUID(load_uuid().strip())
@@ -52,7 +57,9 @@ def build_ctx():
         "tag": os.getenv("TAG", "ALIREZArely").strip() or "ALIREZArely",
         "domain": os.getenv("DOMAIN", "").strip(),
         "tcp_domain": os.getenv("TCP_DOMAIN", "").strip(),
-        "tcp_public_port": int(os.getenv("TCP_PUBLIC_PORT", "9443")),
+        "tcp_public_port": _env_int("TCP_PUBLIC_PORT"),
+        "railway_tcp_domain": os.getenv("RAILWAY_TCP_PROXY_DOMAIN", "").strip(),
+        "railway_tcp_port": _env_int("RAILWAY_TCP_PROXY_PORT"),
         "ws_path": os.getenv("WS_PATH", "/ws").strip() or "/ws",
         "log": log,
     }
@@ -86,14 +93,29 @@ async def handle(reader, writer, ctx):
 
 
 async def run(ctx):
-    port = int(os.getenv("PORT", "8080"))
-    tcp_port = int(os.getenv("TCP_PORT", "9443"))
-    ports = sorted({port, tcp_port})
-    servers = await asyncio.gather(
-        *[asyncio.start_server(lambda r, w: handle(r, w, ctx), "0.0.0.0", p) for p in ports]
-    )
+    candidates = [
+        int(os.getenv("PORT", "8080")),
+        int(os.getenv("TCP_PORT", "9443")),
+    ]
+    if os.getenv("RAILWAY_ENVIRONMENT"):
+        for extra in (8080, 443):
+            if extra not in candidates:
+                candidates.append(extra)
+    servers = []
+    for p in sorted(candidates):
+        try:
+            servers.append(
+                await asyncio.start_server(lambda r, w: handle(r, w, ctx), "0.0.0.0", p)
+            )
+        except OSError as exc:
+            log("skip port %d (%s)" % (p, exc))
+    if not servers:
+        log("error: could not bind any port")
+        raise SystemExit(1)
     log("uuid  : %s" % ctx["uuid"])
-    log("listen: %s" % ", ".join(str(p) for p in ports))
+    log("listen: %s" % ", ".join(str(s.sockets[0].getsockname()[1]) for s in servers))
+    tcp_host, tcp_port, tcp_src = httpd.tcp_target(ctx, ctx["domain"] or "-")
+    log("tcp   : %s:%s (%s)" % (tcp_host, tcp_port, tcp_src))
     if ctx["domain"]:
         l1, l2 = httpd.build_links(ctx, ctx["domain"])
         log("link1 : %s" % l1)

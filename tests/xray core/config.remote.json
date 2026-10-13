@@ -1,0 +1,27 @@
+{
+  "log": { "loglevel": "warning" },
+  "inbounds": [
+    { "tag": "socks-ws", "port": 18088, "listen": "127.0.0.1", "protocol": "socks", "settings": { "udp": false } },
+    { "tag": "socks-tcp", "port": 18089, "listen": "127.0.0.1", "protocol": "socks", "settings": { "udp": false } }
+  ],
+  "outbounds": [
+    {
+      "tag": "ws",
+      "protocol": "vless",
+      "settings": { "vnext": [ { "address": "alirezarely-production.up.railway.app", "port": 443, "users": [ { "id": "9a60ca50-93b7-4fb3-afee-b15a5189f7b0", "encryption": "none" } ] } ] },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": { "serverName": "alirezarely-production.up.railway.app" },
+        "wsSettings": { "path": "/ws" }
+      }
+    },
+    {
+      "tag": "tcp",
+      "protocol": "vless",
+      "settings": { "vnext": [ { "address": "altaria.proxy.rlwy.net", "port": 42571, "users": [ { "id": "9a60ca50-93b7-4fb3-afee-b15a5189f7b0", "encryption": "none" } ] } ] },
+      "streamSettings": { "network": "tcp", "security": "none" }
+    }
+  ],
+  "routing": { "rules": [ { "inboundTag": [ "socks-ws" ], "outboundTag": "ws" }, { "inboundTag": [ "socks-tcp" ], "outboundTag": "tcp" } ] }
+}

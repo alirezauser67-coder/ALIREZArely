@@ -17,6 +17,17 @@ def _resp(status, body, ctype="text/plain; charset=utf-8"):
     return head.encode("ascii") + body
 
 
+def tcp_target(ctx, fallback_host):
+    if ctx.get("railway_tcp_domain"):
+        host, src = ctx["railway_tcp_domain"], "railway"
+    elif ctx.get("tcp_domain"):
+        host, src = ctx["tcp_domain"], "env"
+    else:
+        host, src = fallback_host, "default"
+    port = ctx.get("railway_tcp_port") or ctx.get("tcp_public_port") or 9443
+    return host, port, src
+
+
 def build_links(ctx, host_hdr):
     uid = ctx["uuid"]
     tag = urllib.parse.quote(ctx["tag"])
@@ -48,8 +59,7 @@ def build_links(ctx, host_hdr):
             path_q, ws_host, ws_port)
         link_ws = "vless://%s@%s:%d?%s#%s" % (uid, ws_host, ws_port, ws_q, tag)
 
-    tcp_host = ctx["tcp_domain"] or ws_host
-    tcp_port = ctx["tcp_public_port"]
+    tcp_host, tcp_port, _ = tcp_target(ctx, ws_host)
     link_tcp = "vless://%s@%s:%d?encryption=none&type=tcp#%s" % (
         uid, tcp_host, tcp_port, tag)
     return link_ws, link_tcp
