@@ -4,7 +4,6 @@ data/
 .env
 *.log
 task.txt
-xhttp/config.json
 tests/xray core/*
 !tests/xray core/config.json
 !tests/xray core/config.remote.json
